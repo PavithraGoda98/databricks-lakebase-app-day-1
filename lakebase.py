@@ -1,13 +1,5 @@
-"""
-Lakebase (Databricks-managed Postgres) connection helper.
+"""Lakebase connection helper for a Databricks App."""
 
-Connects using a single LAKEBASE_URL (a standard Postgres connection URL,
-e.g. postgresql://role:password@host:5432/databricks_postgres?sslmode=require)
-pointing at a native Postgres role with a static, non-expiring password.
-This keeps setup to a single secret instead of five separate env vars.
-"""
-
-import base64
 import os
 from contextlib import contextmanager
 
@@ -17,21 +9,41 @@ from psycopg2.extras import RealDictCursor
 from sqlalchemy import create_engine
 
 _w = WorkspaceClient()
+_ENDPOINT_NAME = os.environ.get("ENDPOINT_NAME")
 
-_SCOPE = os.environ.get("LAKEBASE_SECRET_SCOPE", "database")
-_KEY = os.environ.get("LAKEBASE_SECRET_KEY", "lakebase-url")
+if not _ENDPOINT_NAME:
+    raise RuntimeError(
+        "ENDPOINT_NAME is not set. Add to app.yaml:\n"
+        '  - name: ENDPOINT_NAME\n'
+        '    valueFrom: database'
+    )
 
 
-def _lakebase_url() -> str:
-    """Fetch and decode the Lakebase connection URL from the Databricks secret scope."""
-    secret = _w.secrets.get_secret(scope=_SCOPE, key=_KEY)
-    return base64.b64decode(secret.value).decode("utf-8")
+def _connection_kwargs() -> dict:
+    """Build Lakebase connection parameters using the app resource and OAuth."""
+    credential = _w.postgres.generate_database_credential(
+        endpoint=_ENDPOINT_NAME
+    )
+    return {
+        "host": os.environ["PGHOST"],
+        "port": int(os.environ.get("PGPORT", "5432")),
+        "dbname": os.environ["PGDATABASE"],
+        "user": os.environ["PGUSER"],
+        "password": credential.token,
+        "sslmode": os.environ.get("PGSSLMODE", "require"),
+        "cursor_factory": RealDictCursor,
+    }
+
+
+def _new_connection():
+    """Create a new Lakebase connection with a fresh OAuth credential."""
+    return psycopg2.connect(**_connection_kwargs())
 
 
 @contextmanager
 def get_connection():
     """Yield a raw psycopg2 connection with a RealDictCursor factory."""
-    conn = psycopg2.connect(_lakebase_url(), cursor_factory=RealDictCursor)
+    conn = _new_connection()
     try:
         yield conn
     finally:
@@ -39,8 +51,8 @@ def get_connection():
 
 
 def get_engine():
-    """Return a SQLAlchemy engine for Lakebase."""
-    return create_engine(_lakebase_url())
+    """Return a SQLAlchemy engine that creates OAuth-authenticated connections."""
+    return create_engine("postgresql+psycopg2://", creator=_new_connection)
 
 
 def run_query(sql: str, params: tuple | dict | None = None) -> list[dict]:
