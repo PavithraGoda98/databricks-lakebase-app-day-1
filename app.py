@@ -20,6 +20,13 @@ from flask import Flask, jsonify, render_template, request
 import lakebase
 from massive_client import MassiveClient
 
+
+try:
+    r = requests.get("https://api.massive.com", timeout=10)
+    print("MASSIVE TEST:", r.status_code)
+except Exception as e:
+    print("MASSIVE TEST ERROR:", repr(e))
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("massive-app")
 
