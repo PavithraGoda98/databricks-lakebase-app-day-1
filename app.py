@@ -20,10 +20,7 @@ from flask import Flask, jsonify, render_template, request
 import lakebase
 from massive_client import MassiveClient
 
-import socket
 
-print("DNS TEST GOOGLE:", socket.gethostbyname("google.com"))
-print("DNS TEST MASSIVE:", socket.gethostbyname("api.massive.com"))
 try:
     r = requests.get("https://api.massive.com", timeout=10)
     print("MASSIVE TEST:", r.status_code)
